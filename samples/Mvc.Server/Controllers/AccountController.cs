@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Configuration;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
@@ -17,6 +19,8 @@ namespace Mvc.Server.Controllers
     [Authorize]
     public class AccountController : Controller
     {
+        private readonly MyUserManager _myUserManager;
+
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IEmailSender _emailSender;
@@ -25,12 +29,14 @@ namespace Mvc.Server.Controllers
         private static bool _databaseChecked;
 
         public AccountController(
+            MyUserManager myUserManager,
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
             IEmailSender emailSender,
             ISmsSender smsSender,
             ApplicationDbContext applicationDbContext)
         {
+            _myUserManager = myUserManager;
             _userManager = userManager;
             _signInManager = signInManager;
             _emailSender = emailSender;
@@ -107,33 +113,25 @@ namespace Mvc.Server.Controllers
             if (ModelState.IsValid)
             {
                 var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
-                //var result = await _userManager.CreateAsync(user, model.Password);
-                var result = await _userManager.FindByEmailAsync(model.Email);
+                var result = await _userManager.CreateAsync(user, model.Password);
 
-                //result.Succeed
-                if (!result.EmailConfirmed) // !result.EmailConfirmed 
+                if (result.Succeeded)
                 {
-                    //var code1 = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                    await _userManager.SetTwoFactorEnabledAsync(user, true); // or delete
 
-                    //var code = await _userManager.GenerateUserTokenAsync(user, TokenOptions.DefaultEmailProvider,
-                    //    UserManager<ApplicationUser>.ConfirmEmailTokenPurpose); // normal code
-
+                    // nice email-code "345676"
                     var code = await _userManager.GenerateTwoFactorTokenAsync(user, TokenOptions.DefaultEmailProvider);
 
-                    //var callbackUrl = Url.Action("ConfirmEmail", "Account", new { userId = user.Id, code = code }); // protocol: Context.Request.Scheme
+
+                    // phone code "346754"
+                    //var phoneCode = await _userManager.GenerateChangePhoneNumberTokenAsync(user, user.Email);
 
                     await _emailSender.SendEmailAsync(model.Email, "Code your account",
                         $"Please confirm your account, your code {code}");
 
-                    //await _signInManager.SignInAsync(user, isPersistent: false);
-
-                    //return RedirectToLocal(returnUrl);
-
-                    //return RedirectToAction("VerifyCode", new VerifyCodeViewModel{Code = code, RememberBrowser = false, ReturnUrl = returnUrl});
-
-                    return View("VerifyCode");
+                    return View("VerifyCode", new VerifyCodeViewModel{UserId = user.Id, RememberBrowser = false, ReturnUrl = returnUrl});
                 }
-                // AddErrors(result);
+                AddErrors(result);
             }
 
             return View(model);
@@ -247,7 +245,7 @@ namespace Mvc.Server.Controllers
                 return View("Error");
             }
 
-            var result = await _userManager.ConfirmEmailAsync(user, code);
+            var result = await _myUserManager.ConfirmEmailAsync(user, code);
 
             return View(result.Succeeded ? "ConfirmEmail" : "Error");
         }
@@ -355,7 +353,7 @@ namespace Mvc.Server.Controllers
             {
                 return View("Error");
             }
-            var userFactors = await _userManager.GetValidTwoFactorProvidersAsync(user); // не надо 
+            var userFactors = await _userManager.GetValidTwoFactorProvidersAsync(user); // не надо
 
             var factorOptions = userFactors.Select(purpose => new SelectListItem { Text = purpose, Value = purpose }).ToList();
 
@@ -405,18 +403,19 @@ namespace Mvc.Server.Controllers
 
         // 
         // GET: /Account/VerifyCode
-        [HttpGet]
+        [HttpGet] // ("[action]/{userId}")
         [AllowAnonymous]
-        public async Task<IActionResult> VerifyCode(string returnUrl = null, bool rememberMe = false) // provider
+        public async Task<IActionResult> VerifyCode(string userId, string returnUrl = null) // provider
         {
-            // Require that the user has already logged in via username/password or external login
-            var user = await _signInManager.GetTwoFactorAuthenticationUserAsync();
+
+            var user = await _userManager.FindByIdAsync(userId);
 
             if (user is null)
             {
                 return View("Error");
             }
-            return View(new VerifyCodeViewModel { ReturnUrl = returnUrl}); // , RememberMe = rememberMe 
+
+            return View(new VerifyCodeViewModel { UserId = user.Id, ReturnUrl = returnUrl}); // , RememberMe = rememberMe , ReturnUrl = returnUrl
         }
 
         //
@@ -431,23 +430,45 @@ namespace Mvc.Server.Controllers
                 return View(model);
             }
 
-            // The following code protects for brute force attacks against the two factor codes.
+            var user = await _userManager.FindByIdAsync(model.UserId);
+
+            if (user is not null)
+            {
+                // FOR Email
+                var result = await _myUserManager.ConfirmEmailAsync(user, model.Code);
+
+                if (result.Succeeded)
+                {
+                    var res = await _signInManager.TwoFactorSignInAsync(TokenOptions.DefaultEmailProvider, model.Code, true, model.RememberBrowser);
+
+                    return View("ConfirmEmail", new { user.Id, model.Code });
+                }
+            }
+            ModelState.AddModelError("", "Invalid code.");
+            return View(model);
+
+                // The following code protects for brute force attacks against the two factor codes.
             // If a user enters incorrect codes for a specified amount of time then the user account
             // will be locked out for a specified amount of time.
-            var result = await _signInManager.TwoFactorSignInAsync(TokenOptions.DefaultEmailProvider, model.Code, false, model.RememberBrowser); // model.RememberMe
-            if (result.Succeeded)
-            {
-                return RedirectToLocal(model.ReturnUrl);
-            }
-            if (result.IsLockedOut)
-            {
-                return View("Lockout");
-            }
-            else
-            {
-                ModelState.AddModelError("", "Invalid code.");
-                return View(model);
-            }
+            //var result = await _signInManager.TwoFactorSignInAsync(
+            //    TokenOptions.DefaultEmailProvider, 
+            //    model.Code, 
+            //    true, 
+            //    model.RememberBrowser);
+
+            //if (result.Succeeded)
+            //{
+            //    return RedirectToLocal(model.ReturnUrl);
+            //}
+            //if (result.IsLockedOut)
+            //{
+            //    return View("Lockout");
+            //}
+            //else
+            //{
+            //    ModelState.AddModelError("", "Invalid code.");
+            //    return View(model);
+            //}
         }
 
         #region Helpers

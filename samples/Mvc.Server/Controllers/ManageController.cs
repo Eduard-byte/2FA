@@ -48,6 +48,7 @@ namespace Mvc.Server.Controllers
                 : "";
 
             var user = await _userManager.GetUserAsync(User); // GetCurrentUserAsync();
+
             var model = new IndexViewModel
             {
                 HasPassword = await _userManager.HasPasswordAsync(user),
@@ -56,6 +57,7 @@ namespace Mvc.Server.Controllers
                 Logins = await _userManager.GetLoginsAsync(user),
                 BrowserRemembered = await _signInManager.IsTwoFactorClientRememberedAsync(user)
             };
+
             return View(model);
         }
 

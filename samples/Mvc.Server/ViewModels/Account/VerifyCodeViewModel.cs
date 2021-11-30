@@ -5,6 +5,8 @@ namespace Mvc.Server.ViewModels.Account
 {
     public class VerifyCodeViewModel
     {
+        public string UserId { get; set; }
+
         [Required]
         public string Code { get; set; }
 
@@ -12,8 +14,5 @@ namespace Mvc.Server.ViewModels.Account
 
         [Display(Name = "Remember this browser?")]
         public bool RememberBrowser { get; set; }
-
-        //[Display(Name = "Remember me?")]
-        //public bool RememberMe { get; set; }
     }
 }
