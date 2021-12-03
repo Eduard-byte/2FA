@@ -117,17 +117,17 @@ namespace Mvc.Server.Controllers
 
                 if (result.Succeeded)
                 {
-                    await _userManager.SetTwoFactorEnabledAsync(user, true); // or delete
+                    // await _userManager.SetTwoFactorEnabledAsync(user, true); // or delete
 
-                    // nice email-code "345676"
+                    // email code "345676"
                     var code = await _userManager.GenerateTwoFactorTokenAsync(user, TokenOptions.DefaultEmailProvider);
 
 
                     // phone code "346754"
                     //var phoneCode = await _userManager.GenerateChangePhoneNumberTokenAsync(user, user.Email);
 
-                    await _emailSender.SendEmailAsync(model.Email, "Code your account",
-                        $"Please confirm your account, your code {code}");
+                    await _emailSender.SendEmailAsync(model.Email, "Confirm account",
+                        $"Please confirm your account, code - {code}");
 
                     return View("VerifyCode", new VerifyCodeViewModel{UserId = user.Id, RememberBrowser = false, ReturnUrl = returnUrl});
                 }
@@ -353,7 +353,7 @@ namespace Mvc.Server.Controllers
             {
                 return View("Error");
             }
-            var userFactors = await _userManager.GetValidTwoFactorProvidersAsync(user); // не надо
+            var userFactors = await _userManager.GetValidTwoFactorProvidersAsync(user); // Select verify
 
             var factorOptions = userFactors.Select(purpose => new SelectListItem { Text = purpose, Value = purpose }).ToList();
 
@@ -405,7 +405,7 @@ namespace Mvc.Server.Controllers
         // GET: /Account/VerifyCode
         [HttpGet] // ("[action]/{userId}")
         [AllowAnonymous]
-        public async Task<IActionResult> VerifyCode(string userId, string returnUrl = null) // provider
+        public async Task<IActionResult> VerifyCode(string userId, string returnUrl = null) // provider - Phone or Email
         {
 
             var user = await _userManager.FindByIdAsync(userId);
@@ -415,7 +415,7 @@ namespace Mvc.Server.Controllers
                 return View("Error");
             }
 
-            return View(new VerifyCodeViewModel { UserId = user.Id, ReturnUrl = returnUrl}); // , RememberMe = rememberMe , ReturnUrl = returnUrl
+            return View(new VerifyCodeViewModel { UserId = user.Id, ReturnUrl = returnUrl}); // , RememberMe = rememberMe
         }
 
         //
@@ -439,8 +439,7 @@ namespace Mvc.Server.Controllers
 
                 if (result.Succeeded)
                 {
-                    var res = await _signInManager.TwoFactorSignInAsync(TokenOptions.DefaultEmailProvider, model.Code, true, model.RememberBrowser);
-
+                    await _signInManager.SignInAsync(user, model.RememberBrowser);
                     return View("ConfirmEmail", new { user.Id, model.Code });
                 }
             }
